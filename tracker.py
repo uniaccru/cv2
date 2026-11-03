@@ -1,21 +1,3 @@
-"""Keypoint-based planar object tracking (SIFT localization + Lucas-Kanade tracking).
-
-The first frame of the video is the reference image of the object.
-
-Pipeline:
-  * Localization: keypoints of the current frame are matched with the reference
-    keypoints (kNN + Lowe ratio test), a homography is estimated with RANSAC.
-    It is used to start tracking and to re-anchor it periodically (no drift).
-  * Tracking: points that lie on the object are followed from frame to frame with
-    pyramidal Lucas-Kanade optical flow (forward-backward check). A homography
-    reference -> frame is fitted to them with RANSAC. New points are added on the
-    object when old ones disappear, so the object can be followed while it
-    becomes tiny or turns away.
-  * The object is declared lost only when both tracking and localization fail.
-
-Usage:
-    python tracker.py input.avi output.avi --label "Mona Lisa"
-"""
 import argparse
 import time
 
@@ -24,17 +6,6 @@ import numpy as np
 
 LK_PARAMS = dict(winSize=(21, 21), maxLevel=4,
                  criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
-
-
-def create_detector(name):
-    name = name.lower()
-    if name == "sift":
-        return cv2.SIFT_create(nfeatures=2000), cv2.NORM_L2
-    if name == "orb":
-        return cv2.ORB_create(nfeatures=2000), cv2.NORM_HAMMING
-    if name == "akaze":
-        return cv2.AKAZE_create(), cv2.NORM_HAMMING
-    raise ValueError(f"Unknown detector: {name}")
 
 
 def project(pts, H):
@@ -47,7 +18,6 @@ def quad_size(quad):
 
 
 def is_valid_quad(quad, frame_shape, prev_quad=None):
-    """Reject degenerate or implausible projections of the (rectangular) object."""
     pts = quad.reshape(4, 2).astype(np.float32)
     if not np.all(np.isfinite(pts)) or np.abs(pts).max() > 1e5:
         return False
@@ -57,7 +27,6 @@ def is_valid_quad(quad, frame_shape, prev_quad=None):
     frame_area = frame_shape[0] * frame_shape[1]
     if not (2e-4 * frame_area <= area <= 1.2 * frame_area):
         return False
-    # Shape of a projected rectangle: sane angles and opposite sides of similar length.
     edges = np.roll(pts, -1, axis=0) - pts
     lens = np.linalg.norm(edges, axis=1)
     if lens.min() < 1e-3:
@@ -68,7 +37,7 @@ def is_valid_quad(quad, frame_shape, prev_quad=None):
     for i in range(4):
         u, v = -edges[i - 1], edges[i]
         cosang = float(u @ v / (np.linalg.norm(u) * np.linalg.norm(v)))
-        if not (-0.82 <= cosang <= 0.82):  # angle between ~35 and ~145 degrees
+        if not (-0.82 <= cosang <= 0.82):
             return False
     if prev_quad is not None:
         prev_area = cv2.contourArea(prev_quad.reshape(4, 2).astype(np.float32))
@@ -78,7 +47,6 @@ def is_valid_quad(quad, frame_shape, prev_quad=None):
 
 
 def points_spread_ok(pts, quad, min_ratio=0.08):
-    """Tracked points must cover a reasonable part of the object (no degenerate fit)."""
     if len(pts) < 4:
         return False
     hull = cv2.convexHull(np.float32(pts).reshape(-1, 1, 2))
@@ -86,7 +54,6 @@ def points_spread_ok(pts, quad, min_ratio=0.08):
 
 
 def lk_track(prev, cur, pts):
-    """Lucas-Kanade tracking with a forward-backward consistency check."""
     p0 = pts.reshape(-1, 1, 2).astype(np.float32)
     p1, st1, _ = cv2.calcOpticalFlowPyrLK(prev, cur, p0, None, **LK_PARAMS)
     p0r, st2, _ = cv2.calcOpticalFlowPyrLK(cur, prev, p1, None, **LK_PARAMS)
@@ -99,11 +66,6 @@ def lk_track(prev, cur, pts):
 
 
 def build_reference(gray, detector, scales, mask=None, M=None):
-    """Keypoints of the reference from several downscaled copies (mapped back).
-
-    mask limits detection to the object; M maps first-frame coordinates into the
-    reference (object) coordinate system.
-    """
     pts_list, des_list = [], []
     for sc in scales:
         img, m = gray, mask
@@ -125,7 +87,6 @@ def build_reference(gray, detector, scales, mask=None, M=None):
 
 
 def localize(gray, detector, matcher, ref_pts, ref_des, ratio, ransac_thr, min_inliers):
-    """Find the object in the frame by matching with the reference."""
     kp, des = detector.detectAndCompute(gray, None)
     if des is None or len(kp) < 8:
         return None
@@ -146,12 +107,6 @@ def localize(gray, detector, matcher, ref_pts, ref_des, ratio, ransac_thr, min_i
 
 
 def recover(kf_gray, kf_H, kf_quad, gray, detector, matcher, ratio, min_inliers=8):
-    """Re-acquire a lost object using the last frame where it was tracked.
-
-    The object has roughly the same scale and appearance in that frame, so keypoints
-    of the (upscaled) neighborhood of its last position are matched with the current
-    frame. This works for small objects that cannot be matched with the large reference.
-    """
     h, w = gray.shape[:2]
     size = quad_size(kf_quad)
     x0 = int(max(kf_quad[:, 0].min() - size, 0))
@@ -190,7 +145,6 @@ def recover(kf_gray, kf_H, kf_quad, gray, detector, matcher, ratio, min_inliers=
 
 
 def add_points(gray, quad, H, ref_pts, cur_pts, target):
-    """Detect new trackable points on the object and add them (in reference coords)."""
     need = target - len(cur_pts)
     if need <= 0:
         return ref_pts, cur_pts
@@ -209,7 +163,7 @@ def add_points(gray, quad, H, ref_pts, cur_pts, target):
 
 
 def draw_result(frame, quad, pts, label, color=(0, 255, 0)):
-    k = max(1.0, frame.shape[1] / 640.0)  # scale drawing with the resolution
+    k = max(1.0, frame.shape[1] / 640.0)
     q = np.round(quad).astype(np.int32).reshape(-1, 1, 2)
     cv2.polylines(frame, [q], True, color, int(round(2 * k)), cv2.LINE_AA)
     for x, y in pts:
@@ -230,7 +184,6 @@ def main():
     ap.add_argument("input")
     ap.add_argument("output")
     ap.add_argument("--label", default="object")
-    ap.add_argument("--detector", default="sift", choices=["sift", "orb", "akaze"])
     ap.add_argument("--ratio", type=float, default=0.8, help="Lowe ratio threshold")
     ap.add_argument("--ransac", type=float, default=4.0, help="RANSAC threshold for localization, px")
     ap.add_argument("--min-inliers", type=int, default=10, help="min inliers for localization")
@@ -263,12 +216,10 @@ def main():
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     writer = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
-    detector, norm = create_detector(args.detector)
-    matcher = cv2.BFMatcher(norm)
+    detector = cv2.SIFT_create(nfeatures=2000)
+    matcher = cv2.BFMatcher(cv2.NORM_L2)
     ref_gray = cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY)
 
-    # Object coordinate system ("reference"): either the whole first frame, or a
-    # rectangle onto which the ROI quad of the first frame is mapped.
     if args.roi:
         q0 = np.float32([float(v) for v in args.roi.split(",")]).reshape(4, 2)
         rw = float(np.mean([np.linalg.norm(q0[1] - q0[0]), np.linalg.norm(q0[2] - q0[3])]))
@@ -280,7 +231,6 @@ def main():
         k = int(max(3, 0.03 * quad_size(q0)))
         roi_mask = cv2.erode(roi_mask, np.ones((2 * k + 1, 2 * k + 1), np.uint8))
     else:
-        # The reference frame is the object itself: its corners are the frame corners.
         ref_corners = np.float32([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]])
         M, roi_mask = np.eye(3), None
 
@@ -288,7 +238,6 @@ def main():
         ref_gray, detector, [float(x) for x in args.scales.split(",")], roi_mask, M)
     print(f"Reference keypoints (all scales): {len(sift_pts)}")
 
-    # Initial state: homography reference -> first frame, points taken from the first frame.
     H = np.linalg.inv(M)
     quad = project(ref_corners, H)
     p = cv2.goodFeaturesToTrack(ref_gray, args.points, 0.005, 5, mask=roi_mask, blockSize=5)
@@ -319,7 +268,6 @@ def main():
             break
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # 1. Tracking with optical flow.
         tracked = False
         source = "none"
         if H is not None and len(cur_pts) >= args.min_track:
@@ -344,7 +292,6 @@ def main():
             ref_pts = np.empty((0, 2), np.float32)
             cur_pts = np.empty((0, 2), np.float32)
 
-        # 2. Localization by reference keypoints: after a loss and periodically.
         periodic = args.relocalize_every > 0 and frame_idx % args.relocalize_every == 0
         if not tracked or periodic:
             res = localize(gray, detector, matcher, sift_pts, sift_des,
@@ -366,7 +313,6 @@ def main():
                     source = "sift"
                     relocs += 1
 
-        # 2b. Recovery from the last good frame (small objects, short losses).
         if not tracked and since_good <= args.recover_frames:
             res = recover(kf_gray, kf_H, kf_quad, gray, detector, matcher, args.ratio)
             if res is not None:
@@ -378,7 +324,6 @@ def main():
                     source = "recover"
                     relocs += 1
 
-        # 3. Replenish tracked points on the object (and cap their number).
         if tracked and len(cur_pts) > 2 * args.points:
             keep = rng.choice(len(cur_pts), 2 * args.points, replace=False)
             ref_pts, cur_pts = ref_pts[keep], cur_pts[keep]
