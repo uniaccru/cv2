@@ -82,7 +82,7 @@ python tracker.py videos/IMG_8509.MOV results/IMG_8509-result.avi --label "Compo
 
 ### Собственные видео
 
-Снято два видео с объектом, похожим на тестовый: тетрадь Composition Book с обложкой «чёрно-белый мрамор» — плоский объект с очень богатой текстурой, на деревянной столешнице (рядом стакан, телефон, плита). Съёмка с руки, 1280×720, 30 fps; камера приближается, удаляется, наклоняется и поворачивается вокруг тетради, поэтому масштаб и ракурс объекта заметно меняются, в части кадров есть небольшой смаз от движения.
+Съёмка с руки, 1280×720, 30 fps;
 
 В отличие от тестовых видео, первый кадр здесь не крупный план объекта, а вся сцена, и тетрадь занимает только её часть. Поэтому углы тетради на первом кадре задаются вручную параметром `--roi` (в IMG_8508 нижний край тетради немного выходит за кадр, и нижний правый угол задан за его пределами). Остальной алгоритм не менялся.
 
@@ -107,13 +107,3 @@ python tracker.py videos/IMG_8509.MOV results/IMG_8509-result.avi --label "Compo
 - Ограничения: плоские текстурированные объекты; при сильном смазе и полной потере текстуры трекинг прерывается; рамка отражает участок эталона, а не весь физический объект.
 - Возможные улучшения: сглаживание рамки (фильтр Калмана), предсказание положения при потере, ручная разметка углов объекта на первом кадре.
 
-## 5. Использованные источники
-
-1. Lowe D. G. Distinctive Image Features from Scale-Invariant Keypoints // International Journal of Computer Vision, 2004, 60(2), pp. 91–110.
-2. Rublee E., Rabaud V., Konolige K., Bradski G. ORB: An efficient alternative to SIFT or SURF // ICCV, 2011.
-3. Fischler M. A., Bolles R. C. Random Sample Consensus: A Paradigm for Model Fitting with Applications to Image Analysis and Automated Cartography // Communications of the ACM, 1981, 24(6), pp. 381–395.
-4. Lucas B. D., Kanade T. An Iterative Image Registration Technique with an Application to Stereo Vision // IJCAI, 1981, pp. 674–679.
-5. Bouguet J.-Y. Pyramidal Implementation of the Lucas Kanade Feature Tracker: Description of the Algorithm. Intel Corporation, 2001.
-6. Shi J., Tomasi C. Good Features to Track // CVPR, 1994, pp. 593–600.
-7. Hartley R., Zisserman A. Multiple View Geometry in Computer Vision. Cambridge University Press, 2003.
-8. OpenCV documentation: Feature Detection and Description; Optical Flow; Feature Matching + Homography to find Objects. https://docs.opencv.org/
